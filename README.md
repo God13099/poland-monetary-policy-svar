@@ -71,21 +71,15 @@ The SVAR model employs a **recursive (Cholesky) identification scheme**, assumin
 
 The structural matrices are defined as:
 
-\[
 A =
-\begin{pmatrix}
-1 & 0 & 0 \\
-\cdot & 1 & 0 \\
-\cdot & \cdot & 1
-\end{pmatrix},
-\quad
+| 1   0   0 |
+| •   1   0 |
+| •   •   1 |
+
 B =
-\begin{pmatrix}
-\cdot & 0 & 0 \\
-0 & \cdot & 0 \\
-0 & 0 & \cdot
-\end{pmatrix}
-\]
+| •   0   0 |
+| 0   •   0 |
+| 0   0   • |
 
 ---
 
