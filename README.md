@@ -72,16 +72,16 @@ The structural matrices are defined as:
 A =
 | 1   0   0 |
 
-| •   1   0 |
+  | •   1   0 |
 
-| •   •   1 |
+  | •   •   1 |
 
 B =
 | •   0   0 |
 
-| 0   •   0 |
+  | 0   •   0 |
 
-| 0   0   • |
+  | 0   0   • |
 
 ---
 
