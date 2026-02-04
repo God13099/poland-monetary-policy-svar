@@ -35,11 +35,9 @@ A robust data pipeline was constructed to integrate multiple data sources and ad
   Annual population data was interpolated to quarterly frequency to construct real GDP per capita.
 
 - **Variable Transformation:**  
-  GDP growth and inflation are expressed as **annualized quarterly rates** using:
-  
-  \[
-  400 \times \ln(\Delta X)
-  \]
+  GDP growth and inflation are expressed as annualized quarterly rates using:
+
+  400 × ln(ΔX)
 
   This transformation follows standard practice in the monetary policy literature.
 
@@ -73,12 +71,16 @@ The structural matrices are defined as:
 
 A =
 | 1   0   0 |
+
 | •   1   0 |
+
 | •   •   1 |
 
 B =
 | •   0   0 |
+
 | 0   •   0 |
+
 | 0   0   • |
 
 ---
