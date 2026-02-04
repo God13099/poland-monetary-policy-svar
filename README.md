@@ -130,3 +130,8 @@ Across specifications, the results indicate a stable but time-varying transmissi
 ├── README.md
 └── figures/
     └── irf_plots/
+        ├── g1_main_clean.png
+        ├── g2_alt.png
+        ├── g3_full.png
+        └── g4_precovid.png
+
