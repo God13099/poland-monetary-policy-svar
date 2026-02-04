@@ -1,0 +1,841 @@
+-------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  /Users/macbookpro/Desktop/Project_2/Poland_SVAR_Master.log
+  log type:  text
+ opened on:   8 Jan 2026, 10:48:10
+
+. 
+. * Automatically install freduse
+. capture ssc install freduse
+
+. 
+. * =======================================================
+. * Step 0: Processing locally uploaded inflacja.csv 
+. * =======================================================
+. di "Step 0: Processing uploaded inflation CSV data..."
+Step 0: Processing uploaded inflation CSV data...
+
+. 
+. * 1. Import CSV file 
+. import delimited "inflacja.csv", clear varnames(1)
+(encoding automatically selected: ISO-8859-1)
+(5 vars, 12 obs)
+
+. 
+. * 2. Rename variables 
+. rename label month_label
+
+. rename v2 y2022
+
+. rename v3 y2023
+
+. rename v4 y2024
+
+. rename v5 y2025
+
+. 
+. * 3. Convert month names to numbers
+. gen month = .
+(12 missing values generated)
+
+. replace month = 1 if month_label == "January"
+(1 real change made)
+
+. replace month = 2 if month_label == "February"
+(1 real change made)
+
+. replace month = 3 if month_label == "March"
+(1 real change made)
+
+. replace month = 4 if month_label == "April"
+(1 real change made)
+
+. replace month = 5 if month_label == "May"
+(1 real change made)
+
+. replace month = 6 if month_label == "June"
+(1 real change made)
+
+. replace month = 7 if month_label == "July"
+(1 real change made)
+
+. replace month = 8 if month_label == "August"
+(1 real change made)
+
+. replace month = 9 if month_label == "September"
+(1 real change made)
+
+. replace month = 10 if month_label == "October"
+(1 real change made)
+
+. replace month = 11 if month_label == "November"
+(1 real change made)
+
+. replace month = 12 if month_label == "December"
+(1 real change made)
+
+. 
+. * Check if conversion was successful (there should be no missing values)
+. list month_label month if month == .
+
+. 
+. * 4. Reshape data from wide to long format
+. reshape long y, i(month) j(year)
+(j = 2022 2023 2024 2025)
+
+Data                               Wide   ->   Long
+-----------------------------------------------------------------------------
+Number of observations               12   ->   48          
+Number of variables                   6   ->   4           
+j variable (4 values)                     ->   year
+xij variables:
+                  y2022 y2023 ... y2025   ->   y
+-----------------------------------------------------------------------------
+
+. rename y inflation_yoy_manual
+
+. 
+. * 5. Generate quarterly date and aggregate
+. * Convert monthly YoY inflation to quarterly average
+. gen qdate = yq(year, ceil(month/3))
+
+. format qdate %tq
+
+. 
+. collapse (mean) inflation_yoy_manual, by(qdate)
+
+. 
+. * Save as a temporary file for merging in later steps
+. tempfile manual_inflation
+
+. save `manual_inflation'
+file /var/folders/jr/2zhw1lrs1tj939ryh4r0p5dw0000gn/T//S_33687.000001 saved as .dta format
+
+. 
+. di "Step 0 Complete: CSV data processed and saved."
+Step 0 Complete: CSV data processed and saved.
+
+. 
+. * =======================================================
+. * (a) Data download from FRED 
+. * =======================================================
+. di "Step (a): Downloading base data from FRED..."
+Step (a): Downloading base data from FRED...
+
+. 
+. capture freduse CLVMNACSCAB1GQPL POLCPALTT01IXNBM IR3TIB01PLM156N POPTOTPLA647NWDB, clear
+
+. 
+. if _rc != 0 {
+.     di as error "FRED download failed. Check internet connection."
+.     exit
+. }
+
+. 
+. rename CLVMNACSCAB1GQPL real_gdp
+
+. rename POLCPALTT01IXNBM cpi
+
+. rename IR3TIB01PLM156N  interest_rate_monthly
+
+. rename POPTOTPLA647NWDB population_annual
+
+. 
+. * ===========================================================================
+. * VARIABLE DEFINITION: Short-Term Interest Rate
+. * ===========================================================================
+. * The short-term interest rate is proxied by the 3-month interbank rate from 
+. * FRED (Series ID: IR3TIB01PLM156N).
+. *
+. * Context:
+. * In the Polish context, the 3-month interbank rate corresponds to the 
+. * WIBOR 3M fixing, which has been the main benchmark rate for monetary 
+. * policy transmission throughout the sample period (1998–2025).
+. *
+. * Note on Transition:
+. * Although Poland has recently started transitioning from WIBOR to WIRON, 
+. * WIBOR 3M remains the relevant policy rate for the historical period 
+. * analyzed in this paper.
+. * ===========================================================================
+. 
+. * =======================================================
+. * Date handling and quarterly conversion
+. * =======================================================
+. gen date_num = date(date, "YMD")
+
+. gen qdate = yq(year(date_num), quarter(date_num))
+
+. format qdate %tq
+
+. 
+. * 1. Aggregate CPI and interest rate to quarterly (mean)
+. * 2. Aggregate GDP and annual population (first/mean)
+. collapse (mean) cpi interest_rate_monthly population_annual (first) real_gdp, by(qdate)
+
+. 
+. rename interest_rate_monthly interest_rate
+
+. 
+. * =======================================================
+. * Interpolate Population (Annual to Quarterly)
+. * =======================================================
+. tsset qdate
+
+Time variable: qdate, 1960q1 to 2025q4, but with gaps
+        Delta: 1 quarter
+
+. * Interpolate annual population to fill quarterly values
+. ipolate population_annual qdate, gen(population_sa) epolate
+
+. 
+. di "Data download and interpolation complete."
+Data download and interpolation complete.
+
+. 
+. * =======================================================
+. * (b) & (c) Time series declaration and sample definition
+. * =======================================================
+. di "Step (b) & (c): Declaring time series and defining analysis sample..."
+Step (b) & (c): Declaring time series and defining analysis sample...
+
+. 
+. * Declare quarterly time series
+. tsset qdate, quarterly
+
+Time variable: qdate, 1960q1 to 2025q4, but with gaps
+        Delta: 1 quarter
+
+. 
+. * Define post-inflation-targeting sample (starting 2004Q1)
+. gen sample_2004 = qdate >= yq(2004,1)
+
+. label var sample_2004 "Post-inflation-targeting sample (>=2004Q1)"
+
+. 
+. * Merge manually collected inflation data
+. merge 1:1 qdate using `manual_inflation'
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                           161
+        from master                       161  (_merge==1)
+        from using                          0  (_merge==2)
+
+    Matched                                16  (_merge==3)
+    -----------------------------------------
+
+. drop _merge
+
+. 
+. * Reconstruct CPI using YoY inflation (for 2024–2025)
+. replace cpi = L4.cpi * (1 + inflation_yoy_manual/100) ///
+>     if cpi == . & year(dofq(qdate)) == 2024
+(4 real changes made)
+
+. 
+. replace cpi = L4.cpi * (1 + inflation_yoy_manual/100) ///
+>     if cpi == . & year(dofq(qdate)) == 2025
+(4 real changes made)
+
+. 
+. * check the result
+. di "Data Check: 2024-2025 CPI Index Reconstruction:"
+Data Check: 2024-2025 CPI Index Reconstruction:
+
+. list qdate cpi inflation_yoy_manual if qdate >= yq(2023,4)
+
+     +-------------------------------+
+     |  qdate         cpi   inflat~l |
+     |-------------------------------|
+169. | 2023q4      180.65   6.466667 |
+170. | 2024q1   182.28922   2.833333 |
+171. | 2024q2     185.115        2.5 |
+172. | 2024q3   188.00518   4.466667 |
+173. | 2024q4    189.3212        4.8 |
+     |-------------------------------|
+174. | 2025q1   191.22139        4.9 |
+175. | 2025q2   192.76642   4.133333 |
+176. | 2025q3   193.58266   2.966667 |
+177. | 2025q4   194.33821       2.65 |
+     +-------------------------------+
+
+. 
+. 
+. * =======================================================
+. * (d) Growth rates and inflation (Final Variables)
+. * =======================================================
+. di "Step (d): Generating SVAR Variables (Per Capita)..."
+Step (d): Generating SVAR Variables (Per Capita)...
+
+. 
+. * 1. Construct Real GDP Per Capita
+. gen real_gdp_capita = real_gdp / population_sa
+(54 missing values generated)
+
+. 
+. * 2. Take natural logs
+. gen ln_cpi = ln(cpi)
+(29 missing values generated)
+
+. gen ln_gdp_cap = ln(real_gdp_capita)
+(54 missing values generated)
+
+. 
+. * 3. Compute annualized growth rates (400 * log difference)
+. gen inflation   = 400 * (ln_cpi - L.ln_cpi)
+(30 missing values generated)
+
+. gen gdp_growth  = 400 * (ln_gdp_cap - L.ln_gdp_cap)
+(55 missing values generated)
+
+. 
+. label var inflation     "CPI Inflation (Annualized)"
+
+. label var gdp_growth    "Real GDP Per Capita Growth (Annualized)"
+
+. label var interest_rate "WIBOR 3M"
+
+. 
+. * Check the data to ensure no significant missing values
+. list qdate inflation gdp_growth interest_rate in -5/l
+
+     +------------------------------------------+
+     |  qdate   inflat~n   gdp_gr~h   interes~e |
+     |------------------------------------------|
+173. | 2024q4    2.79026   6.223106        5.85 |
+174. | 2025q1   3.994751   2.988434   5.8566667 |
+175. | 2025q2   3.219032   3.508949   5.3566667 |
+176. | 2025q3   1.690102   3.780937   4.8833333 |
+177. | 2025q4   1.558113          .        4.42 |
+     +------------------------------------------+
+
+. 
+. * =======================================================
+. * (f) Stationarity tests (ADF) – 2004Q1–2025Q2
+. * =======================================================
+. di "Step (f): Unit root tests (Strict Sample, lag4)..."
+Step (f): Unit root tests (Strict Sample, lag4)...
+
+. 
+. * GDP growth (stationary by construction, with intercept)
+. dfuller gdp_growth    if inrange(qdate, yq(2004,1), yq(2025,2)), lags(4) drift
+
+Augmented Dickey–Fuller test for unit root
+
+Variable: gdp_growth                       Number of obs  = 86
+                                           Number of lags =  4
+
+H0: Random walk with drift, d = 0
+
+                                      t-distribution
+                   Test      -------- critical value ---------
+              statistic           1%           5%          10%
+--------------------------------------------------------------
+ Z(t)            -5.034       -2.374       -1.664       -1.292
+--------------------------------------------------------------
+p-value for Z(t) = 0.0000
+
+. 
+. * Inflation rate (with intercept)
+. dfuller inflation     if inrange(qdate, yq(2004,1), yq(2025,2)), lags(4) drift
+
+Augmented Dickey–Fuller test for unit root
+
+Variable: inflation                        Number of obs  = 86
+                                           Number of lags =  4
+
+H0: Random walk with drift, d = 0
+
+                                      t-distribution
+                   Test      -------- critical value ---------
+              statistic           1%           5%          10%
+--------------------------------------------------------------
+ Z(t)            -2.972       -2.374       -1.664       -1.292
+--------------------------------------------------------------
+p-value for Z(t) = 0.0020
+
+. 
+. * Interest rate (with intercept)
+. dfuller interest_rate if inrange(qdate, yq(2004,1), yq(2025,2)), lags(4) drift
+
+Augmented Dickey–Fuller test for unit root
+
+Variable: interest_rate                    Number of obs  = 86
+                                           Number of lags =  4
+
+H0: Random walk with drift, d = 0
+
+                                      t-distribution
+                   Test      -------- critical value ---------
+              statistic           1%           5%          10%
+--------------------------------------------------------------
+ Z(t)            -2.332       -2.374       -1.664       -1.292
+--------------------------------------------------------------
+p-value for Z(t) = 0.0111
+
+. 
+. * ===========================================================================
+. * Unit Root Test Results (Robustness Check with 4 lags & drift):
+. *
+. * 1. GDP Growth: Strongly rejects the null hypothesis of a unit root at the 1% level (t = -5.03
+> 4, p = 0.0000).
+. *
+. * 2. Inflation: Rejects the null hypothesis at the 1% level (t = -2.972, 
+. * p = 0.0020), showing stronger evidence of stationarity.
+. * (Note: Test statistic -2.972 < 1% critical value -2.374)
+. *
+. * 3. Interest Rate: Rejects the null hypothesis at the 5% level (t = -2.332, 
+. * p = 0.0111). It is borderline significant at the 1% level.
+. * (Note: Test statistic -2.332 < 5% critical value -1.664)
+. * ===========================================================================
+. 
+. * =======================================================
+. * (g) SVAR estimation: Sims (1980) –use lag4
+. * =======================================================
+. di "Step (g): Estimating SVAR with lag4..."
+Step (g): Estimating SVAR with lag4...
+
+. 
+. * =======================================================
+. * Lag selection for SVAR (based on VAR diagnostics)
+. * =======================================================
+. * Based on the VAR lag selection table (Sample: 2004Q1–2025Q2):
+. *   - AIC minimal at lag 4 (12.6741)
+. *   - FPE minimal at lag 4 (64.5533)
+. *   - LR test: addition of 4th lag significant (p = 0.004)
+. *   - HQIC minimal at lag 2; SBIC minimal at lag 1 (shorter lags)
+. * Decision:
+. *   - Choose lag 4 for the SVAR to capture quarterly dynamics
+. *   - This aligns with Sims (1980) style for quarterly macro data
+. *   - Although SBIC suggests shorter lag, lag 4 improves model fit 
+. *     and preserves impulse response dynamics.
+. 
+. * Lag selection 
+. varsoc gdp_growth inflation interest_rate if inrange(qdate, yq(2004,1), yq(2025,2))
+
+Lag-order selection criteria
+
+   Sample: 2004q1 thru 2025q2                               Number of obs = 86
+  +---------------------------------------------------------------------------+
+  | Lag |    LL      LR      df    p     FPE       AIC      HQIC      SBIC    |
+  |-----+---------------------------------------------------------------------|
+  |   0 | -702.357                     2670.51   16.4037   16.4381   16.4893  |
+  |   1 | -543.655   317.4    9  0.000 82.1692   12.9222     13.06   13.2647* |
+  |   2 | -530.113  27.084    9  0.001 73.9979   12.8166   13.0578*  13.4159  |
+  |   3 | -518.207  23.812    9  0.005 69.3067    12.749   13.0936   13.6052  |
+  |   4 | -505.987   24.44*   9  0.004 64.5533*  12.6741*  13.1221   13.7871  |
+  +---------------------------------------------------------------------------+
+   * optimal lag
+   Endogenous: gdp_growth inflation interest_rate
+    Exogenous: _cons
+
+. 
+. * Identification Matrix (GDP -> Inflation -> Interest Rate)
+. matrix A = (1,0,0 \ ///
+>             .,1,0 \ ///
+>             .,.,1)
+
+.                         
+. matrix B = (.,0,0 \ ///
+>             0,.,0 \ ///
+>             0,0,.)
+
+. 
+. * Using lag4 to estimate VAR
+. svar gdp_growth inflation interest_rate ///
+>      if inrange(qdate, yq(2004,1), yq(2025,2)), ///
+>      lags(1/4) aeq(A) beq(B)
+Estimating short-run parameters
+
+Iteration 0:  Log likelihood = -4518.6068  
+Iteration 1:  Log likelihood = -3344.9007  
+Iteration 2:  Log likelihood = -2121.2569  
+Iteration 3:  Log likelihood = -1632.3595  
+Iteration 4:  Log likelihood = -1392.9237  
+Iteration 5:  Log likelihood = -1267.5412  
+Iteration 6:  Log likelihood = -1113.6862  
+Iteration 7:  Log likelihood = -1023.1548  
+Iteration 8:  Log likelihood = -945.89135  
+Iteration 9:  Log likelihood = -859.54682  
+Iteration 10: Log likelihood =  -775.0274  
+Iteration 11: Log likelihood = -690.31165  
+Iteration 12: Log likelihood = -607.88713  
+Iteration 13: Log likelihood = -537.33396  
+Iteration 14: Log likelihood = -508.09152  
+Iteration 15: Log likelihood = -506.03225  
+Iteration 16: Log likelihood = -505.98705  
+Iteration 17: Log likelihood = -505.98704  
+
+Structural vector autoregression
+
+ ( 1)  [/A]1_1 = 1
+ ( 2)  [/A]1_2 = 0
+ ( 3)  [/A]1_3 = 0
+ ( 4)  [/A]2_2 = 1
+ ( 5)  [/A]2_3 = 0
+ ( 6)  [/A]3_3 = 1
+ ( 7)  [/B]1_2 = 0
+ ( 8)  [/B]1_3 = 0
+ ( 9)  [/B]2_1 = 0
+ (10)  [/B]2_3 = 0
+ (11)  [/B]3_1 = 0
+ (12)  [/B]3_2 = 0
+
+Sample: 2004q1 thru 2025q2                      Number of obs     =         86
+Exactly identified model                        Log likelihood    =   -505.987
+
+------------------------------------------------------------------------------
+             | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+/A           |
+         1_1 |          1  (constrained)
+         2_1 |  -.1456535   .0548679    -2.65   0.008    -.2531927   -.0381144
+         3_1 |  -.0163767   .0070102    -2.34   0.019    -.0301163    -.002637
+         1_2 |          0  (constrained)
+         2_2 |          1  (constrained)
+         3_2 |  -.0515548   .0132452    -3.89   0.000     -.077515   -.0255947
+         1_3 |          0  (constrained)
+         2_3 |          0  (constrained)
+         3_3 |          1  (constrained)
+-------------+----------------------------------------------------------------
+/B           |
+         1_1 |   5.428532   .4139217    13.11   0.000     4.617261    6.239804
+         2_1 |          0  (constrained)
+         3_1 |          0  (constrained)
+         1_2 |          0  (constrained)
+         2_2 |   2.762169   .2106134    13.11   0.000     2.349374    3.174963
+         3_2 |          0  (constrained)
+         1_3 |          0  (constrained)
+         2_3 |          0  (constrained)
+         3_3 |   .3392798   .0258698    13.11   0.000     .2885758    .3899837
+------------------------------------------------------------------------------
+
+. 
+. irf set svar_poland_final, replace
+(file svar_poland_final.irf created)
+(file svar_poland_final.irf now active)
+
+. irf create sims_strict, step(12) replace
+(irfname sims_strict not found in svar_poland_final.irf)
+(file svar_poland_final.irf updated)
+
+. 
+. * Clean Layout
+. irf graph oirf, ///
+>     yline(0, lcolor(black) lwidth(thin)) ///
+>     level(95) ///
+>     xlabel(0(4)12, labsize(small)) ///    
+>     ylabel(, labsize(small)) ///          
+>     xsize(10) ysize(8) ///                
+>     byopts( ///
+>         yrescale xrescale row(3) ///
+>         title("Structural Impulse Responses (Sims 1980, lag4)", size(medium)) /// 
+>         subtitle(, size(vsmall)) ///      
+>         note("") ///                      
+>         graphregion(margin(small)) ///    
+>     ) ///
+>     name(g1_main_clean, replace)
+
+. 
+. 
+. * =======================================================
+. * (h) Alternative ordering 
+. * =======================================================
+. di "Step (h): Alternative ordering (Inflation -> Interest Rate -> GDP, lag4)..."
+Step (h): Alternative ordering (Inflation -> Interest Rate -> GDP, lag4)...
+
+. 
+. matrix A_alt = (1,0,0 \ ///
+>                 .,1,0 \ ///
+>                 .,.,1)
+
+. 
+. matrix B = (.,0,0 \ ///
+>             0,.,0 \ ///
+>             0,0,.)
+
+.                         
+. svar inflation interest_rate gdp_growth ///
+>      if inrange(qdate, yq(2004,1), yq(2025,2)), ///
+>      lags(1/4) aeq(A_alt) beq(B)
+Estimating short-run parameters
+
+Iteration 0:  Log likelihood = -2425.1711  
+Iteration 1:  Log likelihood = -1741.8916  
+Iteration 2:  Log likelihood = -1633.3966  
+Iteration 3:  Log likelihood = -1134.5847  
+Iteration 4:  Log likelihood =  -1005.822  
+Iteration 5:  Log likelihood = -862.86747  
+Iteration 6:  Log likelihood = -725.34418  
+Iteration 7:  Log likelihood =  -619.1463  
+Iteration 8:  Log likelihood = -559.45663  
+Iteration 9:  Log likelihood =  -513.6551  
+Iteration 10: Log likelihood =  -506.1458  
+Iteration 11: Log likelihood = -505.98717  
+Iteration 12: Log likelihood = -505.98704  
+Iteration 13: Log likelihood = -505.98704  
+
+Structural vector autoregression
+
+ ( 1)  [/A]1_1 = 1
+ ( 2)  [/A]1_2 = 0
+ ( 3)  [/A]1_3 = 0
+ ( 4)  [/A]2_2 = 1
+ ( 5)  [/A]2_3 = 0
+ ( 6)  [/A]3_3 = 1
+ ( 7)  [/B]1_2 = 0
+ ( 8)  [/B]1_3 = 0
+ ( 9)  [/B]2_1 = 0
+ (10)  [/B]2_3 = 0
+ (11)  [/B]3_1 = 0
+ (12)  [/B]3_2 = 0
+
+Sample: 2004q1 thru 2025q2                      Number of obs     =         86
+Exactly identified model                        Log likelihood    =   -505.987
+
+------------------------------------------------------------------------------
+             | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+/A           |
+         1_1 |          1  (constrained)
+         2_1 |  -.0600703   .0131316    -4.57   0.000    -.0858077   -.0343329
+         3_1 |  -.3010922   .2117927    -1.42   0.155    -.7161981    .1140138
+         1_2 |          0  (constrained)
+         2_2 |          1  (constrained)
+         3_2 |  -3.643759    1.55974    -2.34   0.019    -6.700794   -.5867239
+         1_3 |          0  (constrained)
+         2_3 |          0  (constrained)
+         3_3 |          1  (constrained)
+-------------+----------------------------------------------------------------
+/B           |
+         1_1 |    2.87311   .2190726    13.11   0.000     2.443735    3.302484
+         2_1 |          0  (constrained)
+         3_1 |          0  (constrained)
+         1_2 |          0  (constrained)
+         2_2 |   .3498794   .0266781    13.11   0.000     .2975914    .4021675
+         3_2 |          0  (constrained)
+         1_3 |          0  (constrained)
+         2_3 |          0  (constrained)
+         3_3 |   5.060809   .3858831    13.11   0.000     4.304492    5.817126
+------------------------------------------------------------------------------
+
+. 
+. irf set svar_alt, replace
+(file svar_alt.irf created)
+(file svar_alt.irf now active)
+
+. irf create alt_order, step(12) replace
+(irfname alt_order not found in svar_alt.irf)
+(file svar_alt.irf updated)
+
+. 
+. irf graph oirf, ///
+>     impulse(interest_rate) ///
+>     response(gdp_growth inflation interest_rate) ///
+>     yline(0) level(95) ///
+>     xsize(10) ysize(6) ///
+>     title("Alternative Ordering: Monetary Policy Shock (lag4)") ///
+>     name(g2_alt, replace)
+
+. 
+. 
+. * =======================================================
+. * (i) Full sample estimation (1998Q1–2025Q2) 
+. * =======================================================
+. di "Step (i): Full sample estimation (lag4)..."
+Step (i): Full sample estimation (lag4)...
+
+. 
+. * Re-define Matrix A (Original Ordering) just to be safe
+. matrix A = (1,0,0 \ ///
+>             .,1,0 \ ///
+>             .,.,1)
+
+. 
+. * Ensure B is defined (Diagonal)
+. matrix B = (.,0,0 \ ///
+>             0,.,0 \ ///
+>             0,0,.)
+
+. 
+. svar gdp_growth inflation interest_rate ///
+>      if inrange(qdate, yq(1998,1), yq(2025,2)), ///
+>      lags(1/4) aeq(A) beq(B)
+Estimating short-run parameters
+
+Iteration 0:  Log likelihood = -5337.7617  
+Iteration 1:  Log likelihood = -3414.5126  
+Iteration 2:  Log likelihood = -2272.0931  
+Iteration 3:  Log likelihood = -1614.5038  
+Iteration 4:  Log likelihood = -1472.1909  
+Iteration 5:  Log likelihood =  -1372.919  
+Iteration 6:  Log likelihood = -1222.2521  
+Iteration 7:  Log likelihood =  -1136.056  
+Iteration 8:  Log likelihood =  -1071.211  
+Iteration 9:  Log likelihood = -961.57238  
+Iteration 10: Log likelihood = -851.96973  
+Iteration 11: Log likelihood = -756.43126  
+Iteration 12: Log likelihood = -710.66593  
+Iteration 13: Log likelihood = -707.08304  
+Iteration 14: Log likelihood = -707.00332  
+Iteration 15: Log likelihood = -707.00328  
+
+Structural vector autoregression
+
+ ( 1)  [/A]1_1 = 1
+ ( 2)  [/A]1_2 = 0
+ ( 3)  [/A]1_3 = 0
+ ( 4)  [/A]2_2 = 1
+ ( 5)  [/A]2_3 = 0
+ ( 6)  [/A]3_3 = 1
+ ( 7)  [/B]1_2 = 0
+ ( 8)  [/B]1_3 = 0
+ ( 9)  [/B]2_1 = 0
+ (10)  [/B]2_3 = 0
+ (11)  [/B]3_1 = 0
+ (12)  [/B]3_2 = 0
+
+Sample: 1998q1 thru 2025q2                      Number of obs     =        110
+Exactly identified model                        Log likelihood    =  -707.0033
+
+------------------------------------------------------------------------------
+             | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+/A           |
+         1_1 |          1  (constrained)
+         2_1 |  -.1251999    .053867    -2.32   0.020    -.2307774   -.0196225
+         3_1 |  -.0239624    .011025    -2.17   0.030    -.0455711   -.0023538
+         1_2 |          0  (constrained)
+         2_2 |          1  (constrained)
+         3_2 |  -.0687895   .0190524    -3.61   0.000    -.1061315   -.0314475
+         1_3 |          0  (constrained)
+         2_3 |          0  (constrained)
+         3_3 |          1  (constrained)
+-------------+----------------------------------------------------------------
+/B           |
+         1_1 |   5.159986   .3478862    14.83   0.000     4.478142    5.841831
+         2_1 |          0  (constrained)
+         3_1 |          0  (constrained)
+         1_2 |          0  (constrained)
+         2_2 |   2.915197   .1965426    14.83   0.000     2.529981    3.300414
+         3_2 |          0  (constrained)
+         1_3 |          0  (constrained)
+         2_3 |          0  (constrained)
+         3_3 |   .5825243   .0392738    14.83   0.000     .5055491    .6594995
+------------------------------------------------------------------------------
+
+. 
+. irf set svar_full, replace
+(file svar_full.irf created)
+(file svar_full.irf now active)
+
+. irf create full_sample, step(12) replace
+(irfname full_sample not found in svar_full.irf)
+(file svar_full.irf updated)
+
+. 
+. irf graph oirf, ///
+>     impulse(interest_rate) ///
+>     response(gdp_growth inflation interest_rate) ///
+>     yline(0) level(95) ///
+>     xsize(10) ysize(6) ///
+>     title("Full Sample Analysis (1998-2025, lag4)") ///
+>     name(g3_full, replace)
+
+. 
+. 
+. * =======================================================
+. * (j) Pre-COVID sample 
+. * =======================================================
+. di "Step (j): Pre-COVID sample (lag4)..."
+Step (j): Pre-COVID sample (lag4)...
+
+. 
+. svar gdp_growth inflation interest_rate ///
+>      if inrange(qdate, yq(2004,1), yq(2019,4)), ///
+>      lags(1/4) aeq(A) beq(B)
+Estimating short-run parameters
+
+Iteration 0:  Log likelihood = -1089.8351  
+Iteration 1:  Log likelihood = -1006.9479  
+Iteration 2:  Log likelihood = -594.08329  
+Iteration 3:  Log likelihood = -559.06981  
+Iteration 4:  Log likelihood = -514.08273  
+Iteration 5:  Log likelihood = -471.65201  
+Iteration 6:  Log likelihood = -415.83805  
+Iteration 7:  Log likelihood = -349.67709  
+Iteration 8:  Log likelihood = -301.25142  
+Iteration 9:  Log likelihood = -290.95684  
+Iteration 10: Log likelihood = -290.55654  
+Iteration 11: Log likelihood = -290.55565  
+Iteration 12: Log likelihood = -290.55565  
+
+Structural vector autoregression
+
+ ( 1)  [/A]1_1 = 1
+ ( 2)  [/A]1_2 = 0
+ ( 3)  [/A]1_3 = 0
+ ( 4)  [/A]2_2 = 1
+ ( 5)  [/A]2_3 = 0
+ ( 6)  [/A]3_3 = 1
+ ( 7)  [/B]1_2 = 0
+ ( 8)  [/B]1_3 = 0
+ ( 9)  [/B]2_1 = 0
+ (10)  [/B]2_3 = 0
+ (11)  [/B]3_1 = 0
+ (12)  [/B]3_2 = 0
+
+Sample: 2004q1 thru 2019q4                      Number of obs     =         64
+Exactly identified model                        Log likelihood    =  -290.5557
+
+------------------------------------------------------------------------------
+             | Coefficient  Std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+/A           |
+         1_1 |          1  (constrained)
+         2_1 |  -.1591134   .0909552    -1.75   0.080    -.3373823    .0191554
+         3_1 |   .0157075   .0117834     1.33   0.183    -.0073874    .0388025
+         1_2 |          0  (constrained)
+         2_2 |          1  (constrained)
+         3_2 |  -.0457032   .0158201    -2.89   0.004      -.07671   -.0146963
+         1_3 |          0  (constrained)
+         2_3 |          0  (constrained)
+         3_3 |          1  (constrained)
+-------------+----------------------------------------------------------------
+/B           |
+         1_1 |   2.705664   .2391492    11.31   0.000      2.23694    3.174388
+         2_1 |          0  (constrained)
+         3_1 |          0  (constrained)
+         1_2 |          0  (constrained)
+         2_2 |   1.968753   .1740149    11.31   0.000     1.627691    2.309816
+         3_2 |          0  (constrained)
+         1_3 |          0  (constrained)
+         2_3 |          0  (constrained)
+         3_3 |   .2491671   .0220235    11.31   0.000     .2060019    .2923323
+------------------------------------------------------------------------------
+
+. 
+. irf set svar_precovid, replace
+(file svar_precovid.irf created)
+(file svar_precovid.irf now active)
+
+. irf create pre_covid, step(12) replace
+(irfname pre_covid not found in svar_precovid.irf)
+(file svar_precovid.irf updated)
+
+. 
+. irf graph oirf, ///
+>     impulse(interest_rate) ///
+>     response(gdp_growth inflation interest_rate) ///
+>     yline(0) level(95) ///
+>     xsize(10) ysize(6) ///
+>     title("Pre-COVID Sample (2004-2019, lag4)") ///
+>     name(g4_precovid, replace)
+
+. 
+. log close
+      name:  <unnamed>
+       log:  /Users/macbookpro/Desktop/Project_2/Poland_SVAR_Master.log
+  log type:  text
+ closed on:   8 Jan 2026, 10:48:22
+-------------------------------------------------------------------------------------------------
